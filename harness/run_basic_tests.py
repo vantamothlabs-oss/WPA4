@@ -10,7 +10,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from encoding.experimental_ie import encode_experimental_ie, decode_experimental_ie, ExperimentalIEError
 from crypto.public_context import encode_public_context, PublicContextError
-from handshake.personal import PersonalHandshake, State
+from handshake.personal import PersonalHandshake, State as PersonalState
+from handshake.kem_based import KEMBasedHandshake
+from crypto.mlkem import MLKEM_SIZE
 
 
 def test_experimental_ie():
@@ -68,12 +70,10 @@ def test_personal_handshake():
     sta_hs = PersonalHandshake(is_initiator=True)
     ap_hs = PersonalHandshake(is_initiator=False)
 
-    # Lock + bind
     assert sta_hs.lock_rsn_and_bind(sid, sta, bssid, ssid, rsn)
     assert ap_hs.lock_rsn_and_bind(sid, sta, bssid, ssid, rsn)
     print("✓ Both sides bound public_context")
 
-    # CPace
     ya = sta_hs.start_cpace()
     assert ya is not None and len(ya) == 32
     yb = ap_hs.process_cpace_ya(ya)
@@ -81,7 +81,6 @@ def test_personal_handshake():
     assert sta_hs.finish_cpace(yb)
     print("✓ CPace completed")
 
-    # OQUAKE
     init_msg = sta_hs.start_oquake()
     assert init_msg is not None and len(init_msg) == 1690
     respond_msg = ap_hs.process_oquake_init(init_msg)
@@ -90,8 +89,30 @@ def test_personal_handshake():
     print("✓ OQUAKE completed")
 
     assert sta_hs.is_finished()
-    assert ap_hs.state == State.OQUAKE_DONE
+    assert ap_hs.state == PersonalState.OQUAKE_DONE
     print("✓ Personal handshake finished successfully")
+
+    return True
+
+
+def test_kem_based_handshake():
+    print("\n=== Testing KEM-based handshake stub (OWE/PASN/FILS) ===")
+
+    initiator = KEMBasedHandshake(is_initiator=True)
+    responder = KEMBasedHandshake(is_initiator=False)
+
+    ct = initiator.start()
+    assert ct is not None and len(ct) == MLKEM_SIZE
+    print(f"✓ Initiator created {len(ct)}-byte ciphertext")
+
+    assert responder.process(ct)
+    print("✓ Responder processed ciphertext")
+
+    assert initiator.finish()
+    print("✓ Initiator finished")
+
+    assert initiator.is_finished() and responder.is_finished()
+    print("✓ KEM-based handshake finished successfully")
 
     return True
 
@@ -99,11 +120,14 @@ def test_personal_handshake():
 if __name__ == "__main__":
     print("Running WPA4 basic userspace tests...\n")
     
-    ok1 = test_experimental_ie()
-    ok2 = test_public_context()
-    ok3 = test_personal_handshake()
+    results = [
+        test_experimental_ie(),
+        test_public_context(),
+        test_personal_handshake(),
+        test_kem_based_handshake(),
+    ]
     
-    if ok1 and ok2 and ok3:
+    if all(results):
         print("\n✅ All tests passed")
         sys.exit(0)
     else:
